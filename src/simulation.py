@@ -8,6 +8,10 @@ Principles being demonstrated:
 import numpy as np
 from scipy.stats import norm
 import matplotlib.pyplot as plt
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+FIGURES_DIR = PROJECT_ROOT / "figures"
+FIGURES_DIR.mkdir(exist_ok=True)
 
 # ----------------------------
 # Data-generating process
@@ -88,7 +92,7 @@ def plot_sampling_distribution(results, mu, save=True):
     plt.title("Sampling Distribution of Sample Mean")
     plt.xlabel("Sample mean")
     plt.legend()
-    plt.savefig("figures/sampling_distribution.png", dpi=300)
+    plt.savefig(FIGURES_DIR / "sampling_distribution.png", dpi=300)
 
 def plot_confidence_intervals(results, mu, max_plots=100, save=True):
     plt.figure(figsize=(8, 5))
@@ -102,7 +106,7 @@ def plot_confidence_intervals(results, mu, max_plots=100, save=True):
     plt.xlabel("Replication")
     plt.ylabel("Value")
     plt.legend()
-    plt.savefig("figures/confidence_intervals.png", dpi=300)
+    plt.savefig(FIGURES_DIR / "confidence_intervals.png", dpi=300)
 
 def convergence_experiment(ns, mu, sigma, alpha, n_rep, save=True):
     avg_means = []
@@ -118,7 +122,7 @@ def convergence_experiment(ns, mu, sigma, alpha, n_rep, save=True):
     plt.xlabel("Sample size n (log scale)")
     plt.ylabel("Average sample mean")
     plt.legend()
-    plt.savefig("figures/convergence.png", dpi=300)
+    plt.savefig(FIGURES_DIR / "convergence.png", dpi=300)
 
 # ----------------------------
 # Main
