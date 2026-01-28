@@ -10,7 +10,7 @@ from scipy.stats import norm
 import matplotlib.pyplot as plt
 from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-FIGURES_DIR = PROJECT_ROOT / "figures"
+FIGURES_DIR = PROJECT_ROOT.parent / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
 
 # ----------------------------
