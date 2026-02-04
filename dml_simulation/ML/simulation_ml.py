@@ -1,211 +1,125 @@
-"""
-Monte Carlo Simulation Study with Machine Learning
-Predicting Y from high-dimensional discrete X using cross-validation
-
-Demonstrates:
-1) Out-of-sample prediction via CV
-2) Bias-variance tradeoff
-3) Performance comparison of ML learners
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from pathlib import Path
 from sklearn.linear_model import Lasso, ElasticNet, LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.model_selection import KFold, GridSearchCV, cross_val_predict
+from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 
 # ----------------------------
 # Paths
 # ----------------------------
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-FIGURES_DIR = PROJECT_ROOT.parent / "figures"
+FIGURES_DIR = Path("figures")
 FIGURES_DIR.mkdir(exist_ok=True)
 
 # ----------------------------
 # Data-generating process
 # ----------------------------
-def sample_X(n, p, rng):
-    """High-dimensional binary covariates"""
-    return rng.binomial(1, 0.5, size=(n, p))
-
-
-def sample_Y(X, beta, sigma, rng):
-    """Linear signal + noise"""
-    eps = rng.normal(0, sigma, size=X.shape[0])
-    return X @ beta + eps
-
-
-# ----------------------------
-# Machine learning with CV
-# ----------------------------
-def ml_predict_cv_fast(X, Y, learner="lasso", n_folds=5, seed=42):
-    kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
-
-    if learner == "lasso":
-        pipe = Pipeline([
-            ("scaler", StandardScaler()),
-            ("model", Lasso(max_iter=5000))
-        ])
-        param_grid = {"model__alpha": np.logspace(-3, 1, 10)}
-
-    elif learner == "elasticnet":
-        pipe = Pipeline([
-            ("scaler", StandardScaler()),
-            ("model", ElasticNet(max_iter=5000))
-        ])
-        param_grid = {
-            "model__alpha": np.logspace(-3, 1, 10),
-            "model__l1_ratio": [0.1, 0.5, 0.9]
-        }
-
-    elif learner == "rf":
-        pipe = RandomForestRegressor(
-            n_estimators=300,
-            max_depth=None,
-            random_state=seed
-        )
-        param_grid = {}
-
-    elif learner == "gboost":
-        pipe = GradientBoostingRegressor(
-            n_estimators=300,
-            learning_rate=0.1,
-            max_depth=3,
-            random_state=seed
-        )
-        param_grid = {}
-
-    else:
-        raise ValueError("Unknown learner")
-
-    # Hyperparameter tuning ONCE
-    if param_grid:
-        grid = GridSearchCV(
-            pipe,
-            param_grid,
-            cv=3,
-            scoring="neg_mean_squared_error",
-            n_jobs=-1
-        )
-        grid.fit(X, Y)
-        best_model = grid.best_estimator_
-    else:
-        best_model = pipe.fit(X, Y)
-
-    # Out-of-fold predictions with FIXED hyperparameters
-    y_hat = cross_val_predict(
-        best_model,
-        X,
-        Y,
-        cv=kf,
-        n_jobs=-1
-    )
-
-    return y_hat
-
-def ols_predict_cv(X, Y, n_folds=5, seed=42):
-    """Out-of-sample predictions from OLS using CV"""
-    kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
-    model = LinearRegression()
-    y_hat = cross_val_predict(model, X, Y, cv=kf)
-    return y_hat
-
-
-# ----------------------------
-# One Monte Carlo run
-# ----------------------------
-def run_once(n, p, beta, sigma, learner, rng):
-    X = sample_X(n, p, rng)
-    Y = sample_Y(X, beta, sigma, rng)
-    if learner == "ols":
-        Y_hat = ols_predict_cv(X, Y)
-    else:
-        Y_hat = ml_predict_cv_fast(X, Y, learner=learner)
-    mse = np.mean((Y - Y_hat) ** 2)
-    return mse
-
-
-# ----------------------------
-# Monte Carlo simulation
-# ----------------------------
-def monte_carlo(n, p, beta, sigma, learner, n_rep, seed=42):
+def generate_single_dataset(n, p, sigma, seed=42):
     rng = np.random.default_rng(seed)
-    mses = []
-
-    for _ in range(n_rep):
-        mse = run_once(n, p, beta, sigma, learner, rng)
-        mses.append(mse)
-
-    return np.array(mses)
-
+    X = rng.binomial(1, 0.5, size=(n, p))
+    beta = rng.normal(0, 1, size=p)
+    beta[10:] = 0  # Sparse signal: only 10 covariates
+    eps = rng.normal(0, sigma, size=n)
+    Y = X @ beta + eps
+    return X, Y
 
 # ----------------------------
-# Plots
+# Evaluation Function
 # ----------------------------
-def plot_mse_distribution(mses, learner):
-    plt.figure(figsize=(8, 5))
-    plt.hist(mses, bins=30, density=True, alpha=0.7)
-    plt.title(f"MSE Distribution ({learner})")
-    plt.xlabel("Out-of-sample MSE")
-    plt.ylabel("Density")
-    plt.tight_layout()
-    plt.savefig(FIGURES_DIR / f"mse_distribution_{learner}.png", dpi=300)
-    plt.close()
+def evaluate_learners(X, Y, n_folds=5):
+    """
+    Runs GridSearchCV once for each learner and returns 
+    the best out-of-sample performance.
+    """
+    results = []
 
+    # 1. OLS (Baseline)
+    ols_pipe = Pipeline([("model", LinearRegression())])
+    # No params to tune for OLS, but we use GridSearch for consistent scoring
+    ols_grid = GridSearchCV(ols_pipe, {}, cv=n_folds, scoring="neg_mean_squared_error")
+    ols_grid.fit(X, Y)
+    results.append({"Learner": "OLS", "MSE": -ols_grid.best_score_, "Params": "None"})
 
-def plot_learner_comparison(results):
-    learners = list(results.keys())
-    avg_mse = [results[l].mean() for l in learners]
+    # 2. LASSO
+    lasso_pipe = Pipeline([("scaler", StandardScaler()), ("model", Lasso(max_iter=5000))])
+    lasso_params = {"model__alpha": np.logspace(-4, 1, 10)}
+    lasso_grid = GridSearchCV(lasso_pipe, lasso_params, cv=n_folds, scoring="neg_mean_squared_error")
+    lasso_grid.fit(X, Y)
+    results.append({"Learner": "Lasso", "MSE": -lasso_grid.best_score_, "Params": lasso_grid.best_params_})
 
-    plt.figure(figsize=(8, 5))
-    plt.bar(learners, avg_mse)
-    plt.ylabel("Average out-of-sample MSE")
-    plt.title("Machine Learner Comparison")
-    plt.tight_layout()
-    plt.savefig(FIGURES_DIR / "learner_comparison.png", dpi=300)
-    plt.close()
+    # 3. Elasticnet
+    en_pipe = Pipeline([
+        ("scaler", StandardScaler()), 
+        ("model", ElasticNet(max_iter=5000))
+    ])
+    en_params = {
+        "model__alpha": np.logspace(-4, 1, 10),
+        "model__l1_ratio": [0.1, 0.5, 0.7, 0.9]
+    }
+    en_grid = GridSearchCV(en_pipe, en_params, cv=n_folds, scoring="neg_mean_squared_error", n_jobs=-1)
+    en_grid.fit(X, Y)
+    results.append({
+        "Learner": "ElasticNet", 
+        "MSE": -en_grid.best_score_, 
+        "Params": en_grid.best_params_
+    })
 
+    # 4. Random Forest
+    rf_pipe = Pipeline([("model", RandomForestRegressor(random_state=42))])
+    rf_params = {
+        "model__max_depth": [3, 5, 10], 
+        "model__min_samples_leaf": [1, 5]
+    }
+    rf_grid = GridSearchCV(rf_pipe, rf_params, cv=n_folds, scoring="neg_mean_squared_error")
+    rf_grid.fit(X, Y)
+    results.append({"Learner": "RandomForest", "MSE": -rf_grid.best_score_, "Params": rf_grid.best_params_})
+
+    # 5. Gradient Boosting
+    gb_pipe = Pipeline([("model", GradientBoostingRegressor(random_state=42))])
+    gb_params = {
+        "model__n_estimators": [100, 200],
+        "model__learning_rate": [0.01, 0.1],
+        "model__max_depth": [2, 3]
+    }
+    gb_grid = GridSearchCV(gb_pipe, gb_params, cv=n_folds, scoring="neg_mean_squared_error")
+    gb_grid.fit(X, Y)
+    results.append({"Learner": "GBoost", "MSE": -gb_grid.best_score_, "Params": gb_grid.best_params_})
+
+    return pd.DataFrame(results)
 
 # ----------------------------
-# Main
+# Main Execution
 # ----------------------------
 if __name__ == "__main__":
     # Parameters
-    n = 200          # sample size
-    p = 500          # number of covariates (p >> n)
+    n = 300
+    p = 500  # High-dimensional case p > n
     sigma = 1.0
-    n_rep = 50     # Monte Carlo repetitions
 
-    rng = np.random.default_rng(123)
-    beta = rng.normal(0, 1, size=p)
-    beta[50:] = 0    # sparse signal
+    print(f"Generating data (n={n}, p={p})...")
+    X, Y = generate_single_dataset(n, p, sigma)
 
-    learners = ["ols", "lasso", "elasticnet", "rf", "gboost"]
-    results = {}
+    print("Running Cross-Validation for Hyperparameter Tuning...")
+    df_results = evaluate_learners(X, Y)
 
-    print("Monte Carlo ML Simulation")
-    print("--------------------------")
+    # Print Results Table
+    print("\nComparison of Learners (Out-of-sample MSE):")
+    print(df_results[["Learner", "MSE"]].to_string(index=False))
 
-    for learner in learners:
-        print(f"Running learner: {learner}")
-        mses = monte_carlo(
-            n=n,
-            p=p,
-            beta=beta,
-            sigma=sigma,
-            learner=learner,
-            n_rep=n_rep
-        )
-        results[learner] = mses
-
-        print(f"  Avg MSE: {mses.mean():.4f}")
-        print(f"  Std MSE: {mses.std():.4f}")
-
-        plot_mse_distribution(mses, learner)
-
-    plot_learner_comparison(results)
-
-    print("\nFigures saved to:", FIGURES_DIR)
+    # Save visualization
+    plt.figure(figsize=(10, 6))
+    plt.bar(df_results["Learner"], df_results["MSE"], color='skyblue', edgecolor='black')
+    plt.ylabel("Cross-Validated MSE")
+    plt.title(f"Model Comparison (p={p}, n={n})")
+    plt.savefig(FIGURES_DIR / "learner_comparison_cv.png", dpi=300)
+    
+    print(f"\nBest parameters for OLS: {df_results.iloc[0]['Params']}")
+    print(f"\nBest parameters for Lasso: {df_results.iloc[1]['Params']}") # Best alpha for Lasso
+    print(f"\nBest parameters for ElasticNet: {df_results.iloc[2]['Params']}") # Best alpha and l1_ratio for ElasticNet
+    print(f"\nBest parameters for Random Forest: {df_results.iloc[3]['Params']}") # Best max_depth and min_samples_leaf for Random Forest
+    print(f"\nBest parameters for Gradient Boosting: {df_results.iloc[4]['Params']}") # Best n_estimators, learning_rate, max_depth for Gradient Boosting
+    
+    
