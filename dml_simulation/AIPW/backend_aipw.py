@@ -121,7 +121,7 @@ def run_single_sim(s, dgp, learners, n, n_groups, beta_g, p_g):
     return rows
 
 def monte_carlo_parallel(dgp, learners, n, sims, n_groups, beta_g, p_g):
-    results = Parallel(n_jobs=-1, batch_size = "auto")(
+    results = Parallel(n_jobs=-1, batch_size="auto")(
         delayed(run_single_sim)(s, dgp, learners, n, n_groups, beta_g, p_g)
         for s in range(sims)
     )
@@ -135,7 +135,7 @@ def monte_carlo_parallel(dgp, learners, n, sims, n_groups, beta_g, p_g):
         Variance=("tau", "var"),
         Mean_SD_Err=("se", "mean"),
         RMSE=("tau", lambda x: np.sqrt(np.mean((x - tau_true)**2))),
-        CIWidth=("se", lambda x: 2 * 1.96 * np.mean(x)),
+        CI_Width=("se", lambda x: 2 * 1.96 * np.mean(x)),
         Coverage=("covered", "mean"),
     )
     
@@ -203,7 +203,7 @@ def tune_single(name, model, X, Y):
 def tune_once_parallel(dgp_func, learners, n, n_groups, beta_g, p_g, seed=0):
     rng = np.random.default_rng(seed)
     X, D, Y, _ = dgp_func(rng, n, n_groups, beta_g, p_g)
-    results = Parallel(n_jobs=-1, batch_size = "auto")(
+    results = Parallel(n_jobs=-1, batch_size="auto")(
         delayed(tune_single)(name, model, X, Y)
         for name, model in learners.items()
     )
