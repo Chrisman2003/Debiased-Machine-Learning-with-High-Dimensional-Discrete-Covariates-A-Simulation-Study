@@ -168,13 +168,16 @@ def tune_once(dgp_func, learners, n, n_groups, beta_g, p_g, seed=0):
 # =====================================================
 # 6. Parallelized Hyperparameter Tuning
 # =====================================================
+# ---------------- Hyperparameter grids ----------------
 LASSO_GRID = {"alpha": np.logspace(-3, 0, 8)}
 EN_GRID = {"alpha": np.logspace(-3, 0, 8), "l1_ratio": [0.2, 0.5, 0.8]}
+RIDGE_GRID = {"alpha": np.logspace(-3, 3, 7)}  # 0.001 → 1000
 RF_GRID = {"max_depth": [3, 5, None], "min_samples_leaf": [5, 10, 20]}
 GB_GRID = {"learning_rate": [0.01, 0.05, 0.1], "max_depth": [2, 3]}
-CATBOOST_GRID = {"learning_rate": [0.01, 0.05, 0.1], "depth": [3, 5, 7],"iterations": [100, 300]}
+CATBOOST_GRID = {"learning_rate": [0.01, 0.05, 0.1], "depth": [3, 5, 7], "iterations": [100, 300]}
+XGB_GRID = {"learning_rate": [0.01, 0.05, 0.1], "max_depth": [2, 3, 5], "n_estimators": [100, 300]}  # basic tuning
 
-# --- Tune a single learner ---
+# ---------------- Single learner tuner ----------------
 def tune_learner(model, param_grid, X, y):
     if param_grid is None:
         model.fit(X, y)
@@ -183,23 +186,29 @@ def tune_learner(model, param_grid, X, y):
     gs.fit(X, y)
     return gs.best_estimator_
 
+# ---------------- Handle each learner ----------------
 def tune_single(name, model, X, Y):
     if name == "Lasso":
         grid = LASSO_GRID
     elif name == "ElasticNet":
         grid = EN_GRID
+    elif name == "Ridge":
+        grid = RIDGE_GRID
     elif name == "RF":
         grid = RF_GRID
     elif name == "GB":
         grid = GB_GRID
     elif name == "CatBoost":
         grid = CATBOOST_GRID
+    elif name == "XGBoost":
+        grid = XGB_GRID
     else:
         return name, clone(model)
     
     tuned_model = tune_learner(clone(model), grid, X, Y)
     return name, tuned_model
 
+# ---------------- Parallel tuning ----------------
 def tune_once_parallel(dgp_func, learners, n, n_groups, beta_g, p_g, seed=0):
     rng = np.random.default_rng(seed)
     X, D, Y, _ = dgp_func(rng, n, n_groups, beta_g, p_g)
